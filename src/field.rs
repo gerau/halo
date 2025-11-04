@@ -1,14 +1,15 @@
 use std::{
     fmt::Display,
     marker::PhantomData,
-    ops::{Add, Mul, Sub},
+    ops::{Add, Div, Mul, Sub},
+    str::FromStr,
 };
 
-use num_bigint::BigUint;
+use num_bigint::{BigUint, ParseBigIntError};
 
 use crate::modulus::{Modulus, OrderP, OrderQ};
 
-#[derive(Debug, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Field<M: Modulus> {
     pub number: BigUint,
 
@@ -23,12 +24,10 @@ impl<M: Modulus> Field<M> {
         }
     }
 
-    pub fn pow(self, power: Self) -> Self {
-        assert!(self.modulo == power.modulo);
-
+    pub fn pow(&self, power: &Self) -> Self {
         Field {
             number: self.number.modpow(&power.number, M::get()),
-            modulo: self.modulo,
+            modulo: PhantomData,
         }
     }
 }
@@ -49,6 +48,23 @@ impl<M: Modulus> Mul for Field<M> {
     }
 }
 
+impl<M: Modulus> Mul for &Field<M> {
+    type Output = Field<M>;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Field::new(&self.number * &rhs.number)
+    }
+}
+
+#[allow(clippy::suspicious_arithmetic_impl)]
+impl<M: Modulus> Div for Field<M> {
+    type Output = Field<M>;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        Field::new(self.number * rhs.number.modinv(M::get()).unwrap())
+    }
+}
+
 impl<M: Modulus> Sub for Field<M> {
     type Output = Field<M>;
 
@@ -57,10 +73,64 @@ impl<M: Modulus> Sub for Field<M> {
     }
 }
 
+impl<M: Modulus> Sub for &Field<M> {
+    type Output = Field<M>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Field::new(&self.number + M::get() - &rhs.number)
+    }
+}
+
+impl<M: Modulus> Sub<&Field<M>> for Field<M> {
+    type Output = Field<M>;
+
+    fn sub(self, rhs: &Field<M>) -> Self::Output {
+        Field::new(self.number + M::get() - &rhs.number)
+    }
+}
+
+impl<M: Modulus> Sub<Field<M>> for &Field<M> {
+    type Output = Field<M>;
+
+    fn sub(self, rhs: Field<M>) -> Self::Output {
+        Field::new(&self.number + M::get() - rhs.number)
+    }
+}
+
+impl<M: Modulus> Clone for Field<M> {
+    fn clone(&self) -> Self {
+        Self {
+            number: self.number.clone(),
+            modulo: PhantomData,
+        }
+    }
+}
+
 impl<M: Modulus> Display for Field<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(format!("({},{})", self.number, M::get()).as_str())?;
         Ok(())
+    }
+}
+
+impl<M: Modulus> From<u64> for Field<M> {
+    fn from(value: u64) -> Self {
+        Field::new(BigUint::from(value))
+    }
+}
+
+impl<M: Modulus> From<i32> for Field<M> {
+    fn from(value: i32) -> Self {
+        let unsigned: u32 = value.try_into().unwrap();
+        Field::new(BigUint::from(unsigned))
+    }
+}
+
+impl<M: Modulus> FromStr for Field<M> {
+    type Err = ParseBigIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Field::new(BigUint::from_str(s)?))
     }
 }
 

@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use num_bigint::BigUint;
 use std::str::FromStr;
 
-pub trait Modulus {
+pub trait Modulus: PartialEq + Clone {
     fn get() -> &'static BigUint;
 }
 
@@ -17,7 +17,7 @@ lazy_static! {
     .unwrap();
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct OrderP;
 
 impl Modulus for OrderP {
@@ -26,7 +26,7 @@ impl Modulus for OrderP {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct OrderQ;
 
 impl Modulus for OrderQ {
