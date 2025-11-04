@@ -133,6 +133,8 @@ impl<M: Modulus> FromStr for Field<M> {
         Ok(Field::new(BigUint::from_str(s)?))
     }
 }
-
+#[allow(dead_code)]
 pub type FieldP = Field<OrderP>;
+
+#[allow(dead_code)]
 pub type FieldQ = Field<OrderQ>;

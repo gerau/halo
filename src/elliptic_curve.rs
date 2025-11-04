@@ -1,16 +1,14 @@
-use num_bigint::BigUint;
-
 use std::{
     fmt::Display,
     marker::PhantomData,
-    ops::{Add, Mul, Sub},
+    ops::{Add, AddAssign, Mul},
 };
 
 use num_traits::Zero;
 
 use crate::{field::Field, modulus::Modulus};
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Clone)]
+#[derive(Debug, PartialEq, PartialOrd, Eq)]
 pub struct CurvePoint<M: Modulus> {
     pub x: Field<M>,
     pub y: Field<M>,
@@ -18,6 +16,23 @@ pub struct CurvePoint<M: Modulus> {
     pub is_infinity: bool,
 
     order: std::marker::PhantomData<M>,
+}
+
+impl<M: Modulus> Clone for CurvePoint<M> {
+    fn clone(&self) -> Self {
+        Self {
+            x: self.x.clone(),
+            y: self.y.clone(),
+            is_infinity: self.is_infinity,
+            order: self.order,
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.x.clone_from(&source.x);
+        self.y.clone_from(&source.y);
+        self.is_infinity = source.is_infinity;
+    }
 }
 
 impl<M: Modulus> CurvePoint<M> {
@@ -54,11 +69,15 @@ impl<M: Modulus> CurvePoint<M> {
         let y = &self.y;
 
         let lhs = x.pow(&3.into()) + 5.into();
-        println!("{}", lhs);
         let rhs = y * y;
-        println!("{}", rhs);
 
         lhs == rhs
+    }
+
+    fn set_infinity(&mut self) {
+        self.x = 0.into();
+        self.y = 0.into();
+        self.is_infinity = true;
     }
 }
 
@@ -66,11 +85,14 @@ impl<M: Modulus> Add for CurvePoint<M> {
     type Output = CurvePoint<M>;
 
     fn add(self, rhs: Self) -> Self::Output {
+        let (x, y) = (&self.x, &self.y);
+        let (x_r, y_r) = (&rhs.x, &rhs.y);
+
         if rhs.is_infinity {
             return self;
         } else if self.is_infinity {
             return rhs;
-        } else if self.x == rhs.x && self.y != rhs.y {
+        } else if x == x_r && y != y_r {
             return Self::new_infinity();
         }
 
@@ -78,17 +100,104 @@ impl<M: Modulus> Add for CurvePoint<M> {
         let three = Field::from(3);
 
         let s: Field<M> = if self == rhs {
-            if self.y.number.is_zero() {
+            if y.number.is_zero() {
                 return Self::new_infinity();
             }
-            (&three * &self.x.pow(&two)) / (&two * &self.y)
+            (three * x.pow(&two)) / (&two * y)
         } else {
-            (&rhs.y - &self.y) / (&rhs.x - &self.x)
+            (y_r - y) / (x_r - x)
         };
-        let new_x = &s.pow(&two) - &self.x - &rhs.x;
-        let new_y = &s * &(&self.x - &new_x) - &self.y;
+        let new_x = &s.pow(&two) - x - x_r;
+        let new_y = &s * &(x - &new_x) - y;
 
         Self::new(new_x, new_y).expect("Addition of points need to be correct")
+    }
+}
+
+impl<M: Modulus> Add for &CurvePoint<M> {
+    type Output = CurvePoint<M>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let (x, y) = (&self.x, &self.y);
+        let (x_r, y_r) = (&rhs.x, &rhs.y);
+
+        if rhs.is_infinity {
+            return self.clone();
+        } else if self.is_infinity {
+            return rhs.clone();
+        } else if x == x_r && y != y_r {
+            return Self::Output::new_infinity();
+        }
+
+        let two = Field::from(2);
+        let three = Field::from(3);
+
+        let s: Field<M> = if self == rhs {
+            if y.number.is_zero() {
+                return Self::Output::new_infinity();
+            }
+            (three * x.pow(&two)) / (&two * y)
+        } else {
+            (y_r - y) / (x_r - x)
+        };
+        let new_x = &s.pow(&two) - x - x_r;
+        let new_y = &s * &(x - &new_x) - y;
+
+        Self::Output::new(new_x, new_y).expect("Addition of points need to be correct")
+    }
+}
+
+impl<M: Modulus> AddAssign for CurvePoint<M> {
+    fn add_assign(&mut self, rhs: Self) {
+        let (x, y) = (&self.x, &self.y);
+        let (x_r, y_r) = (&rhs.x, &rhs.y);
+
+        if rhs.is_infinity {
+            return;
+        } else if self.is_infinity {
+            self.clone_from(&rhs);
+            return;
+        } else if x == x_r && y != y_r {
+            self.set_infinity();
+            return;
+        }
+
+        let two = Field::from(2);
+        let three = Field::from(3);
+
+        let s: Field<M> = if self == &rhs {
+            if y.number.is_zero() {
+                self.set_infinity();
+                return;
+            }
+            (three * x.pow(&two)) / (&two * y)
+        } else {
+            (y_r - y) / (x_r - x)
+        };
+        let new_x = &s.pow(&two) - x - x_r;
+        let new_y = &s * &(x - &new_x) - y;
+
+        self.x = new_x;
+        self.y = new_y;
+    }
+}
+
+impl<M: Modulus> Mul<Field<M>> for CurvePoint<M> {
+    type Output = CurvePoint<M>;
+
+    fn mul(self, rhs: Field<M>) -> Self::Output {
+        let mut result = Self::new_infinity();
+        let mut add = self.clone();
+
+        let bits = rhs.number.bits();
+
+        for i in 0..bits {
+            if rhs.number.bit(i) {
+                result = &result + &add;
+            }
+            add = &add + &add;
+        }
+        result
     }
 }
 
@@ -153,7 +262,7 @@ mod elliptic_curve_tests {
         )
         .unwrap();
 
-        assert!((a + b) == result)
+        assert_eq!(a + b, result)
     }
 
     #[test]
@@ -194,7 +303,36 @@ mod elliptic_curve_tests {
         )
         .unwrap();
 
-        assert!((a + b) == result)
+        assert_eq!(a + b, result)
+    }
+
+    #[test]
+    fn doubling_test_fp() {
+        let a: CurvePoint<OrderP> = CurvePoint::new(
+            Field::from_str(
+                "16909226366434337090002029874530773609945429384634010589202308143299843842109",
+            )
+            .unwrap(),
+            Field::from_str(
+                "22289652916292038233802578916041176193424404491330669531128447027442819547009",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        let result: CurvePoint<OrderP> = CurvePoint::new(
+            Field::from_str(
+                "26627901895311929412061073520912504423663864690969978810618273611899328804957",
+            )
+            .unwrap(),
+            Field::from_str(
+                "5645391259068071962401054088667169471848861916041555603144023837132996877952",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(a.clone() + a, result)
     }
 
     #[test]
@@ -214,5 +352,41 @@ mod elliptic_curve_tests {
         let infinity: CurvePoint<OrderP> = CurvePoint::new_infinity();
 
         assert_eq!(a.clone(), a + infinity);
+    }
+
+    #[test]
+    fn multiply() {
+        let a: CurvePoint<OrderP> = CurvePoint::new(
+            Field::from_str(
+                "19422280595109069951862896517863616574418686534058761073670180784027971855802",
+            )
+            .unwrap(),
+            Field::from_str(
+                "11090450506703525262630446804833734397652482233395951028154717035371611573726",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        let scalar: Field<OrderP> = Field::from_str(
+            "1563750830861819851520880065691358712351730162896247138866720840651323457775",
+        )
+        .unwrap();
+
+        dbg!(&scalar);
+
+        let result: CurvePoint<OrderP> = CurvePoint::new(
+            Field::from_str(
+                "24900093740427460719317843302751314869260252172138935506494925835061423875240",
+            )
+            .unwrap(),
+            Field::from_str(
+                "10690880907742924436758301380673321005651802536989903562762736696002004031756",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(result, a * scalar);
     }
 }
