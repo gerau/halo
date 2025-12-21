@@ -5,7 +5,9 @@ use std::{
     str::FromStr,
 };
 
-use num_bigint::{BigUint, ParseBigIntError};
+use num_bigint::{BigUint, ParseBigIntError, RandBigInt};
+use num_traits::ConstZero;
+use rand::Rng;
 
 use crate::modulus::{Modulus, OrderP, OrderQ};
 
@@ -24,12 +26,33 @@ impl<M: Modulus> Field<M> {
         }
     }
 
-    pub fn pow(&self, power: &Self) -> Self {
-        Field {
+    pub fn pow_field(&self, power: &Self) -> Self {
+        Self {
             number: self.number.modpow(&power.number, M::get()),
             modulo: PhantomData,
         }
     }
+
+    pub fn pow(&self, power: u64) -> Self {
+        Self::new(self.number.modpow(&BigUint::from(power), M::get()))
+    }
+
+    pub fn get_random<R: Rng + ?Sized>(rng: &mut R) -> Self {
+        Self::new(rng.gen_biguint_below(M::get()))
+    }
+
+    pub fn inv(&self) -> Option<Self> {
+        self.number.modinv(M::get()).map(Self::new)
+    }
+
+    pub fn one() -> Self {
+        Self::from(1)
+    }
+
+    pub const ZERO: Self = Self {
+        number: BigUint::ZERO,
+        modulo: PhantomData,
+    };
 }
 
 impl<M: Modulus> Add for Field<M> {
@@ -37,6 +60,30 @@ impl<M: Modulus> Add for Field<M> {
 
     fn add(self, rhs: Self) -> Self::Output {
         Field::new(self.number + rhs.number)
+    }
+}
+
+impl<M: Modulus> Add for &Field<M> {
+    type Output = Field<M>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Field::new(&self.number + &rhs.number)
+    }
+}
+
+impl<M: Modulus> Add<&Field<M>> for Field<M> {
+    type Output = Field<M>;
+
+    fn add(self, rhs: &Self) -> Self::Output {
+        Field::new(self.number + &rhs.number)
+    }
+}
+
+impl<M: Modulus> Add<Field<M>> for &Field<M> {
+    type Output = Field<M>;
+
+    fn add(self, rhs: Field<M>) -> Self::Output {
+        Field::new(&self.number + &rhs.number)
     }
 }
 
@@ -52,6 +99,22 @@ impl<M: Modulus> Mul for &Field<M> {
     type Output = Field<M>;
 
     fn mul(self, rhs: Self) -> Self::Output {
+        Field::new(&self.number * &rhs.number)
+    }
+}
+
+impl<M: Modulus> Mul<&Field<M>> for Field<M> {
+    type Output = Field<M>;
+
+    fn mul(self, rhs: &Field<M>) -> Self::Output {
+        Field::new(self.number * &rhs.number)
+    }
+}
+
+impl<M: Modulus> Mul<Field<M>> for &Field<M> {
+    type Output = Field<M>;
+
+    fn mul(self, rhs: Field<M>) -> Self::Output {
         Field::new(&self.number * &rhs.number)
     }
 }

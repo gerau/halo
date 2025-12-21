@@ -68,7 +68,7 @@ impl<M: Modulus> CurvePoint<M> {
         let x = &self.x;
         let y = &self.y;
 
-        let lhs = x.pow(&3.into()) + 5.into();
+        let lhs = x.pow(3) + Field::<M>::from(5);
         let rhs = y * y;
 
         lhs == rhs
@@ -103,11 +103,11 @@ impl<M: Modulus> Add for CurvePoint<M> {
             if y.number.is_zero() {
                 return Self::new_infinity();
             }
-            (three * x.pow(&two)) / (&two * y)
+            (three * x.pow_field(&two)) / (&two * y)
         } else {
             (y_r - y) / (x_r - x)
         };
-        let new_x = &s.pow(&two) - x - x_r;
+        let new_x = &s.pow_field(&two) - x - x_r;
         let new_y = &s * &(x - &new_x) - y;
 
         Self::new(new_x, new_y).expect("Addition of points need to be correct")
@@ -136,11 +136,11 @@ impl<M: Modulus> Add for &CurvePoint<M> {
             if y.number.is_zero() {
                 return Self::Output::new_infinity();
             }
-            (three * x.pow(&two)) / (&two * y)
+            (three * x.pow_field(&two)) / (&two * y)
         } else {
             (y_r - y) / (x_r - x)
         };
-        let new_x = &s.pow(&two) - x - x_r;
+        let new_x = &s.pow_field(&two) - x - x_r;
         let new_y = &s * &(x - &new_x) - y;
 
         Self::Output::new(new_x, new_y).expect("Addition of points need to be correct")
@@ -170,11 +170,11 @@ impl<M: Modulus> AddAssign for CurvePoint<M> {
                 self.set_infinity();
                 return;
             }
-            (three * x.pow(&two)) / (&two * y)
+            (three * x.pow_field(&two)) / (&two * y)
         } else {
             (y_r - y) / (x_r - x)
         };
-        let new_x = &s.pow(&two) - x - x_r;
+        let new_x = &s.pow_field(&two) - x - x_r;
         let new_y = &s * &(x - &new_x) - y;
 
         self.x = new_x;
