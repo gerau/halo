@@ -1,17 +1,18 @@
 use std::{
     fmt::Display,
     marker::PhantomData,
-    ops::{Add, Div, Mul, Sub},
+    ops::{Add, AddAssign, Div, Mul, Sub},
     str::FromStr,
 };
 
 use num_bigint::{BigUint, ParseBigIntError, RandBigInt};
 use num_traits::ConstZero;
+use num_traits::Zero;
 use rand::Rng;
 
 use crate::modulus::{Modulus, OrderP, OrderQ};
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Default)]
 pub struct Field<M: Modulus> {
     pub number: BigUint,
 
@@ -37,7 +38,7 @@ impl<M: Modulus> Field<M> {
         Self::new(self.number.modpow(&BigUint::from(power), M::get()))
     }
 
-    pub fn get_random<R: Rng + ?Sized>(rng: &mut R) -> Self {
+    pub fn get_random<R: Rng>(rng: &mut R) -> Self {
         Self::new(rng.gen_biguint_below(M::get()))
     }
 
@@ -49,10 +50,26 @@ impl<M: Modulus> Field<M> {
         Self::from(1)
     }
 
+    // -number by mod
+    pub fn inv_additive(&self) -> Self {
+        Self::new(M::get() - &self.number)
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.number.is_zero()
+    }
+
     pub const ZERO: Self = Self {
         number: BigUint::ZERO,
         modulo: PhantomData,
     };
+}
+
+impl<M: Modulus> AddAssign for Field<M> {
+    fn add_assign(&mut self, rhs: Self) {
+        self.number += rhs.number;
+        self.number %= M::get();
+    }
 }
 
 impl<M: Modulus> Add for Field<M> {
@@ -171,7 +188,7 @@ impl<M: Modulus> Clone for Field<M> {
 
 impl<M: Modulus> Display for Field<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("({},{})", self.number, M::get()).as_str())?;
+        f.write_str(&format!("{}", self.number))?;
         Ok(())
     }
 }

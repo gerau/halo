@@ -17,7 +17,7 @@ lazy_static! {
     .unwrap();
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Default)]
 pub struct OrderP;
 
 impl Modulus for OrderP {
@@ -26,7 +26,7 @@ impl Modulus for OrderP {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Default)]
 pub struct OrderQ;
 
 impl Modulus for OrderQ {
