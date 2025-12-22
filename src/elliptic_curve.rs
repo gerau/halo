@@ -1,21 +1,19 @@
 use std::{
     fmt::Display,
-    marker::PhantomData,
     ops::{Add, AddAssign, Mul},
 };
 
 use num_traits::Zero;
+use rand::Rng;
 
 use crate::{field::Field, modulus::Modulus};
 
-#[derive(Debug, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Default)]
 pub struct CurvePoint<M: Modulus> {
     pub x: Field<M>,
     pub y: Field<M>,
 
     pub is_infinity: bool,
-
-    order: std::marker::PhantomData<M>,
 }
 
 impl<M: Modulus> Clone for CurvePoint<M> {
@@ -24,7 +22,6 @@ impl<M: Modulus> Clone for CurvePoint<M> {
             x: self.x.clone(),
             y: self.y.clone(),
             is_infinity: self.is_infinity,
-            order: self.order,
         }
     }
 
@@ -41,7 +38,6 @@ impl<M: Modulus> CurvePoint<M> {
             x,
             y,
             is_infinity: false,
-            order: PhantomData,
         };
 
         if !res.is_on_curve() {
@@ -56,7 +52,6 @@ impl<M: Modulus> CurvePoint<M> {
             x: 0.into(),
             y: 0.into(),
             is_infinity: true,
-            order: PhantomData,
         }
     }
 
@@ -78,6 +73,18 @@ impl<M: Modulus> CurvePoint<M> {
         self.x = 0.into();
         self.y = 0.into();
         self.is_infinity = true;
+    }
+
+    fn get_generator() -> Self {
+        Self {
+            x: Field::<M>::from(-1),
+            y: Field::<M>::from(2),
+            is_infinity: false,
+        }
+    }
+
+    pub fn get_random<R: Rng + Sized>(rng: &mut R) -> Self {
+        Self::get_generator() * Field::<M>::get_random(rng)
     }
 }
 
