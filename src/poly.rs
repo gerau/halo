@@ -9,7 +9,7 @@ use std::{
 };
 use std::{fmt::Display, ops::Add};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Polynomial<M: Modulus> {
     pub coefficients: Vec<Field<M>>,
 
@@ -18,7 +18,7 @@ pub struct Polynomial<M: Modulus> {
 }
 
 impl<M: Modulus> Polynomial<M> {
-    pub fn evaluate_at(&self, x: Field<M>) -> Field<M> {
+    pub fn evaluate_at(&self, x: &Field<M>) -> Field<M> {
         if self.coefficients.is_empty() {
             return Field::<M>::ZERO;
         }
@@ -77,9 +77,116 @@ impl<M: Modulus> Polynomial<M> {
             offset: 0,
         }
     }
+
+    pub fn div_by_linear(&self, a: &Field<M>) -> Polynomial<M> {
+        if self.coefficients.is_empty() {
+            return Polynomial {
+                coefficients: vec![],
+                offset: 0,
+            };
+        }
+
+        let n = self.coefficients.len();
+        if n == 0 {
+            return self.clone();
+        }
+
+        let mut quotient_coeffs = vec![Field::<M>::ZERO; n - 1];
+        let mut remainder = Field::<M>::ZERO;
+
+        for i in (1..n).rev() {
+            let coeff = &self.coefficients[i];
+            let val = if i == n - 1 {
+                coeff.clone()
+            } else {
+                coeff + &(&remainder * a)
+            };
+
+            quotient_coeffs[i - 1] = val.clone();
+            remainder = val; // Carry over for next step
+        }
+
+        let final_remainder = &self.coefficients[0] + &(&remainder * a);
+
+        if !final_remainder.is_zero() {
+            panic!("Polynomial not divisible by (X - {})", a);
+        }
+
+        Polynomial {
+            coefficients: quotient_coeffs,
+            offset: self.offset,
+        }
+    }
+
+    pub fn pad_to_zero_offset(&self, target_length: usize) -> Polynomial<M> {
+        if self.offset < 0 {
+            panic!(
+                "Cannot pad polynomial with negative offset: {}",
+                self.offset
+            );
+        }
+
+        let front_pad = self.offset as usize;
+        let current_len = self.coefficients.len();
+        let total_len_needed = front_pad + current_len;
+
+        if total_len_needed > target_length {
+            panic!(
+                "Target length {} is too small for polynomial of effective length {} (offset {} + len {})",
+                target_length, total_len_needed, self.offset, current_len
+            );
+        }
+
+        let mut new_coeffs = Vec::with_capacity(target_length);
+
+        new_coeffs.resize(front_pad, Field::<M>::ZERO);
+        new_coeffs.extend_from_slice(&self.coefficients);
+        new_coeffs.resize(target_length, Field::<M>::ZERO);
+
+        Polynomial {
+            coefficients: new_coeffs,
+            offset: 0,
+        }
+    }
 }
 
 impl<M: Modulus> Add for &Polynomial<M> {
+    type Output = Polynomial<M>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        if self.coefficients.is_empty() {
+            return rhs.clone();
+        }
+        if rhs.coefficients.is_empty() {
+            return self.clone();
+        }
+
+        let min_offset = self.offset.min(rhs.offset);
+        let max_exp_self = self.offset + self.coefficients.len() as i64;
+        let max_exp_rhs = rhs.offset + rhs.coefficients.len() as i64;
+        let max_exp = max_exp_self.max(max_exp_rhs);
+
+        let new_len = (max_exp - min_offset) as usize;
+        let mut new_coeffs = vec![Field::<M>::ZERO; new_len];
+
+        for (i, coeff) in self.coefficients.iter().enumerate() {
+            let target_idx = (i as i64 + self.offset - min_offset) as usize;
+            new_coeffs[target_idx] = &new_coeffs[target_idx] + coeff;
+        }
+
+        for (i, coeff) in rhs.coefficients.iter().enumerate() {
+            let target_idx = (i as i64 + rhs.offset - min_offset) as usize;
+            new_coeffs[target_idx] = &new_coeffs[target_idx] + coeff;
+        }
+
+        Polynomial {
+            coefficients: new_coeffs,
+            offset: min_offset,
+        }
+    }
+}
+
+impl<M: Modulus> Add for Polynomial<M> {
     type Output = Polynomial<M>;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -209,9 +316,9 @@ impl<M: Modulus> Display for Polynomial<M> {
             }
 
             match exponent {
-                0 => write!(f, "{}", coeff)?,
-                1 => write!(f, "{} * x", coeff)?,
-                _ => write!(f, "{} * x^({})", coeff, exponent)?,
+                0 => write!(f, "{}\n", coeff)?,
+                1 => write!(f, "{} * x\n", coeff)?,
+                _ => write!(f, "{} * x^({})\n", coeff, exponent)?,
             }
         }
 
@@ -240,7 +347,7 @@ impl<M: Modulus> Polynomial<M> {
 
         Polynomial {
             coefficients: lo_coeffs,
-            offset: -d,
+            offset: 0,
         }
     }
 
@@ -254,7 +361,7 @@ impl<M: Modulus> Polynomial<M> {
 
         Polynomial {
             coefficients: hi_coeffs,
-            offset: 1,
+            offset: 0,
         }
     }
 }
@@ -321,6 +428,6 @@ mod tests {
         };
 
         let p3 = &p1 * &p2;
-        assert_eq!(p3.evaluate_at(x), FieldP::from(6));
+        assert_eq!(p3.evaluate_at(&x), FieldP::from(6));
     }
 }

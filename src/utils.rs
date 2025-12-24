@@ -16,6 +16,13 @@ where
         .collect()
 }
 
+#[derive(Debug)]
+pub struct OpeningData<M: Modulus> {
+    pub polynomial: Polynomial<M>,
+    pub point: Field<M>,
+    pub values: Vec<Field<M>>,
+}
+
 pub struct ProoverHelper<M: Modulus> {
     pub n: usize,
     pub q: usize,
@@ -56,7 +63,7 @@ impl<M: Modulus> ProoverHelper<M> {
         }
     }
 
-    pub fn r_evaluate_at_x(&self, x: &Field<M>) -> Polynomial<M> {
+    pub fn evaluate_r_at_x(&self, x: &Field<M>) -> Polynomial<M> {
         let z = x.inv().expect("value must be invertible");
         let z_n = z.pow(self.n as u64 + 1);
 
@@ -237,11 +244,11 @@ impl<M: Modulus> ProoverHelper<M> {
     }
 
     pub fn evaluate_t_at_x(&self, x: &Field<M>) -> Polynomial<M> {
-        let r = self.r_evaluate_at_x(x);
+        let r = self.evaluate_r_at_x(x);
 
         let eval_ss = self.evaluate_ss_at_x(x);
 
-        let r_x1 = r.evaluate_at(Field::<M>::one());
+        let r_x1 = r.evaluate_at(&Field::<M>::one());
 
         let k = Polynomial {
             coefficients: self.k.iter().map(|x| x.inv_additive()).collect(),
@@ -253,10 +260,10 @@ impl<M: Modulus> ProoverHelper<M> {
     }
 
     pub fn evaluate_t_at_y(&self, y: &Field<M>) -> Polynomial<M> {
-        let r = self.r_evaluate_at_x(y);
+        let r = self.evaluate_r_at_x(y);
         let eval_ss = self.evaluate_ss_at_y(y);
 
-        let r_1 = self.r_evaluate_at_x(&Field::one());
+        let r_1 = self.evaluate_r_at_x(&Field::one());
 
         let y = std::iter::successors(Some(y.pow(self.n as u64 + 1).clone()), |prev| {
             Some(y * prev)
@@ -272,6 +279,149 @@ impl<M: Modulus> ProoverHelper<M> {
         };
 
         &(&(&r + &eval_ss) * &r_1) + &y_poly
+    }
+
+    pub fn evaluate_k(&self, x: &Field<M>) -> Field<M> {
+        std::iter::successors(Some(x.clone()), |prev| Some(prev * x))
+            .take(self.q)
+            .zip(&self.k)
+            .map(|(x, val)| x * val)
+            .fold(Field::<M>::ZERO, |acc, val| acc + val)
+    }
+
+    pub fn compute_p_poly(
+        &self,
+        y: &Field<M>,
+        y_new: &Field<M>,
+        z1: &Field<M>,
+        u_old: &[Field<M>],
+        s_old_poly: &Polynomial<M>,
+    ) -> Polynomial<M> {
+        let r_poly = self
+            .evaluate_r_at_x(&Field::<M>::one())
+            .shift_poly((self.n * 3) as i64 - 1);
+
+        let s_poly = self.evaluate_s_at_y(y).shift_poly(self.n as i64);
+        let s_new_poly = self.evaluate_s_at_y(y_new).shift_poly(self.n as i64);
+        let s_old_poly = s_old_poly.shift_poly(self.n as i64);
+
+        let t_val = self.evaluate_t_at_y(y);
+        let t_lo = t_val.extract_t_lo(self.n * 4);
+        let t_hi = t_val.extract_t_hi(self.n * 4);
+
+        let g_poly = compute_g_poly(u_old);
+
+        let mut z1_pow = z1.clone();
+
+        let mut p = r_poly;
+
+        p = p + &s_old_poly * &z1_pow;
+
+        z1_pow = &z1_pow * z1;
+        p = p + &s_poly * &z1_pow;
+
+        z1_pow = &z1_pow * z1;
+        p = p + &s_new_poly * &z1_pow;
+
+        z1_pow = &z1_pow * z1;
+        p = p + &t_lo * &z1_pow;
+
+        z1_pow = &z1_pow * z1;
+        p = p + &t_hi * &z1_pow;
+
+        z1_pow = &z1_pow * z1;
+        p = p + &g_poly * &z1_pow;
+
+        p
+    }
+
+    pub fn compute_q_poly(&self, x: &Field<M>, z1: &Field<M>) -> Polynomial<M> {
+        let k_poly = Polynomial {
+            coefficients: self.k.clone(),
+            offset: 1,
+        };
+
+        let s_at_x = self.evaluate_s_at_x(x);
+
+        let x_n = x.pow(self.n as u64);
+        let multiplier = z1 * &x_n;
+
+        let scaled_c_poly = &s_at_x * &multiplier;
+
+        &k_poly + &scaled_c_poly
+    }
+}
+
+pub fn compute_h_at_y<M: Modulus + std::fmt::Debug>(
+    vectors: &[OpeningData<M>],
+    y: &Field<M>,
+    z: &Field<M>,
+) -> Polynomial<M> {
+    let mut h_acc = Polynomial::<M>::empty();
+    let mut y_pow = Field::<M>::one();
+
+    for vec in vectors {
+        let e_poly = &vec.polynomial;
+        let x_i = &vec.point;
+
+        let mut v_i = Field::<M>::ZERO;
+        let mut z_pow = Field::<M>::one();
+
+        for val in &vec.values {
+            v_i = v_i + &(val * &z_pow);
+            z_pow = z_pow * z;
+        }
+
+        let mut numerator_coeffs = e_poly.coefficients.clone();
+
+        if numerator_coeffs.is_empty() {
+            numerator_coeffs.push(v_i.inv_additive());
+        } else {
+            if e_poly.offset > 0 {
+                panic!("Offset handling required for division");
+            }
+            numerator_coeffs[0] = &numerator_coeffs[0] - &v_i;
+        }
+
+        let numerator = Polynomial {
+            coefficients: numerator_coeffs,
+            offset: e_poly.offset,
+        };
+
+        let quotient = &numerator.div_by_linear(x_i) * &y_pow;
+
+        h_acc = &h_acc + &quotient;
+
+        y_pow = y_pow * y;
+    }
+
+    h_acc
+}
+
+pub fn compute_g_poly<M: Modulus>(u_old: &[Field<M>]) -> Polynomial<M> {
+    let mut g_coeffs = vec![Field::<M>::one()];
+
+    for u_i in u_old {
+        let u_inv = u_i.inv().expect("u values must be invertible");
+
+        let current_len = g_coeffs.len();
+
+        let mut upper_half = Vec::with_capacity(current_len);
+
+        for coeff in &g_coeffs {
+            upper_half.push(coeff * u_i);
+        }
+
+        for coeff in &mut g_coeffs {
+            *coeff = coeff.clone() * &u_inv;
+        }
+
+        g_coeffs.extend(upper_half);
+    }
+
+    Polynomial {
+        coefficients: g_coeffs,
+        offset: 0,
     }
 }
 
@@ -513,7 +663,9 @@ mod utils_tests {
     use crate::{
         field::Field,
         modulus::{self, OrderP},
-        utils::{calculate_k_vector, evaluate_r, evaluate_s, evaluate_ss, evaluate_t},
+        utils::{
+            calculate_k_vector, compute_g_poly, evaluate_r, evaluate_s, evaluate_ss, evaluate_t,
+        },
     };
 
     use std::sync::LazyLock;
@@ -672,6 +824,32 @@ mod utils_tests {
             t,
             FieldP::from_str(
                 "9577296933606094075357504016059020464592551159956904365253909461538337282914"
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn evaluate_g_test() {
+        let u = [
+            FieldP::from_str("64754676296675759630").unwrap(),
+            FieldP::from_str("73765879184746879147").unwrap(),
+            FieldP::from_str("97773392004576823364").unwrap(),
+            FieldP::from_str("60165719114422929560").unwrap(),
+            FieldP::from_str("21566727123236131661").unwrap(),
+            FieldP::from_str("11448818114343894404").unwrap(),
+            FieldP::from_str("82590164008962748575").unwrap(),
+            FieldP::from_str("54884236751808722008").unwrap(),
+            FieldP::from_str("8700405742601104402").unwrap(),
+            FieldP::from_str("59867821506301675157").unwrap(),
+        ];
+
+        let x = FieldP::from_str("12345678912345678").unwrap();
+
+        assert_eq!(
+            compute_g_poly(&u).evaluate_at(&x),
+            FieldP::from_str(
+                "24406136827291081635735323315355841701312203555195070011527099165661735038267"
             )
             .unwrap()
         );

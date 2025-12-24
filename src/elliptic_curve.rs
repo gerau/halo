@@ -77,7 +77,7 @@ impl<M: Modulus> CurvePoint<M> {
 
     fn get_generator() -> Self {
         Self {
-            x: Field::<M>::from(-1),
+            x: Field::<M>::minus_one(),
             y: Field::<M>::from(2),
             is_infinity: false,
         }
@@ -85,6 +85,13 @@ impl<M: Modulus> CurvePoint<M> {
 
     pub fn get_random<R: Rng + Sized>(rng: &mut R) -> Self {
         Self::get_generator() * Field::<M>::get_random(rng)
+    }
+
+    pub fn msm(g: &[Self], a: &[Field<M>]) -> Self {
+        a.iter()
+            .zip(g)
+            .map(|(x, y)| y * x)
+            .fold(CurvePoint::<M>::new_infinity(), |acc, val| acc + val)
     }
 }
 
@@ -194,6 +201,25 @@ impl<M: Modulus> Mul<Field<M>> for CurvePoint<M> {
 
     fn mul(self, rhs: Field<M>) -> Self::Output {
         let mut result = Self::new_infinity();
+        let mut add = self.clone();
+
+        let bits = rhs.number.bits();
+
+        for i in 0..bits {
+            if rhs.number.bit(i) {
+                result = &result + &add;
+            }
+            add = &add + &add;
+        }
+        result
+    }
+}
+
+impl<M: Modulus> Mul<&Field<M>> for &CurvePoint<M> {
+    type Output = CurvePoint<M>;
+
+    fn mul(self, rhs: &Field<M>) -> Self::Output {
+        let mut result = CurvePoint::<M>::new_infinity();
         let mut add = self.clone();
 
         let bits = rhs.number.bits();

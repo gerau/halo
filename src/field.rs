@@ -63,6 +63,10 @@ impl<M: Modulus> Field<M> {
         number: BigUint::ZERO,
         modulo: PhantomData,
     };
+
+    pub fn minus_one() -> Self {
+        Self::new(M::get() - BigUint::from(1_u64))
+    }
 }
 
 impl<M: Modulus> AddAssign for Field<M> {
